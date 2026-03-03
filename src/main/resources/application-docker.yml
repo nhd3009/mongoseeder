@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: mongodbseed
+  main:
+    banner-mode: "off"
+  mongodb:
+    uri: ${MONGODB_URL}/${DATABASE_NAME}?serverSelectionTimeoutMS=3000&socketTimeoutMS=3000
+
+logging:
+  level:
+    root: INFO

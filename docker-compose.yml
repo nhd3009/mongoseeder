@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  mongodb:
+    image: mongo:7
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  mongoseeder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mongoseeder
+    depends_on:
+      - mongodb
+    env_file:
+      - ./docker.env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    ports:
+      - "8080:8080"
+    restart: always
+
+volumes:
+  mongo_data:

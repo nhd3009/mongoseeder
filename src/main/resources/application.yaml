@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: mongoseeder
+  mongodb:
+    uri: ${MONGODB_URL}/${DATABASE_NAME}?serverSelectionTimeoutMS=3000&socketTimeoutMS=3000&connectTimeoutMS=2000&maxIdleTimeMS=5000
