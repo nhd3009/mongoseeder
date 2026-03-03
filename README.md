@@ -72,6 +72,27 @@ spring:
       uri: ${MONGODB_URL}/${DATABASE_NAME}
 ```
 
+## Docker
+Following the step
+1. Create docker.env in root directory
+```
+MONGODB_URL=mongodb://mongodb:27017
+DATABASE_NAME=seeddb_docker
+SPRING_PROFILES_ACTIVE=docker
+```
+2. Build docker image
+```
+docker compose build --no-cache
+```
+3. Start service
+```
+docker compose up -d
+```
+4. Check container
+```
+docker ps
+```
+
 ## API Example
 1. Create a job
    - Request
