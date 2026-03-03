@@ -55,10 +55,10 @@ Stream live metrics via SSE
 - Spring Data MongoDB
 - ExecutorService for multithreading
 - SLF4J + Logback for logging
-- GraalVM
+- GraalVM 25
 
 ## Prerequisites
-- Java 21
+- Java
 - Maven
 - MongoDB
 
@@ -71,6 +71,30 @@ spring:
     mongodb:
       uri: ${MONGODB_URL}/${DATABASE_NAME}
 ```
+
+## Requirements
+- Graalvm for JS Execution
+  - Install SDKMAN if you already installed it, you can skip this step. You can check installation guide at [SDKMAN](https://sdkman.io/install/):
+    ```bash
+    curl -s "https://get.sdkman.io" | bash
+    source "$HOME/.sdkman/bin/sdkman-init.sh"
+    ```
+  - Install GraalVM Java 25
+    ```
+    sdk install java 25.r25-nik
+    sdk use java 25.r25-nik
+    ```
+  - Verify installation
+    ```
+    java -version
+    ```
+    You should see something like
+    ```
+    openjdk version "25" 2025-09-16 LTS
+    OpenJDK Runtime Environment Liberica-NIK-25.0.0-1 (build 25+37-LTS)
+    OpenJDK 64-Bit Server VM Liberica-NIK-25.0.0-1 (build 25+37-LTS, mixed mode, sharing)
+    ```
+
 
 ## Docker
 Following the step
