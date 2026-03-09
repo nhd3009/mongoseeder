@@ -1,6 +1,6 @@
 package com.nhd.mongoseeder.service;
 
-import com.mongodb.client.MongoClient;
+import com.nhd.mongoseeder.config.MongoTemplateFactory;
 import com.nhd.mongoseeder.dto.JobConfig;
 import com.nhd.mongoseeder.engine.FakeDataEngine;
 import com.nhd.mongoseeder.enums.JobStatus;
@@ -13,7 +13,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import com.mongodb.client.MongoClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
@@ -31,7 +30,7 @@ public class JobService {
 
     private final Map<String, DataJob> jobStore = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper;
-    private final MongoClient mongoClient;
+    private final MongoTemplateFactory templateFactory;
 
     private final ThreadLocal<FakeDataEngine> engineThreadLocal =
             ThreadLocal.withInitial(FakeDataEngine::new);
@@ -213,10 +212,7 @@ public class JobService {
                 .map(Document::new)
                 .toList();
 
-        MongoTemplate mongoTemplate = new MongoTemplate(
-                mongoClient,
-                job.getConfig().getDatabaseName()
-        );
+        MongoTemplate mongoTemplate = templateFactory.create(job.getConfig().getDatabaseName());
 
         mongoTemplate.insert(docs, job.getConfig().getCollectionName());
 
