@@ -1,5 +1,6 @@
 package com.nhd.mongoseeder.service;
 
+import com.nhd.mongoseeder.config.JsonSchemaValidator;
 import com.nhd.mongoseeder.config.MongoTemplateFactory;
 import com.nhd.mongoseeder.dto.JobConfig;
 import com.nhd.mongoseeder.enums.JobStatus;
@@ -17,6 +18,7 @@ import java.util.Collection;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -76,7 +78,7 @@ class JobServiceTest {
         assertTrue(job.getMetrics().getStartTime() > 0);
         assertTrue(job.getMetrics().getEndTime() >= job.getMetrics().getStartTime());
 
-        verify(mongoTemplate, times(1)).insert(any(Collection.class), eq("testColl"));
+        verify(mongoTemplate, times(1)).insert(anyCollection(), eq("testColl"));
     }
 
     @Test
@@ -86,14 +88,62 @@ class JobServiceTest {
 
         when(templateFactory.create("testDb")).thenReturn(mongoTemplate);
 
-        // Simulate MongoException on batch insertion
-        doThrow(new MongoException("Connection lost")).when(mongoTemplate).insert(any(Collection.class),
-                eq("testColl"));
+        doThrow(new MongoException("Connection lost"))
+            .when(mongoTemplate)
+            .insert(anyCollection(), eq("testColl"));
 
         jobService.startJobExecution(job.getId());
 
         assertEquals(JobStatus.FAILED, job.getStatus());
         assertFalse(job.getLastErrors().isEmpty());
         assertTrue(job.getLastErrors().get(0).contains("Connection lost"));
+    }
+
+    // validate schema test
+    @Test
+    void validateSchema_withInvalidSchema_shouldThrowException() {
+
+        String schema = """
+            {
+                "type": "object",
+                "properties": {
+                    "age": {
+                    "type": "invalidtype"
+                    }
+                }
+            }
+            """;
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> JsonSchemaValidator.validateSchema(schema)
+        );
+    }
+
+    @Test
+    void validateSchema_withInvalidJson_shouldThrowException() {
+
+        String schema = """
+            {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" }
+            """;
+
+        assertThrows(
+                Exception.class,
+                () -> JsonSchemaValidator.validateSchema(schema)
+        );
+    }
+
+    @Test
+    void validateSchema_withNonSchemaJson_shouldThrowException() {
+
+        String schema = "{ invalid json";
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> JsonSchemaValidator.validateSchema(schema)
+        );
     }
 }

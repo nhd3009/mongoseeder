@@ -1,5 +1,6 @@
 package com.nhd.mongoseeder.service;
 
+import com.nhd.mongoseeder.config.JsonSchemaValidator;
 import com.nhd.mongoseeder.config.MongoTemplateFactory;
 import com.nhd.mongoseeder.dto.JobConfig;
 import com.nhd.mongoseeder.engine.FakeDataEngine;
@@ -43,15 +44,7 @@ public class JobService {
                 config.getBatchSize(),
                 config.getThreadCount()
         );
-        try {
-            objectMapper.readTree(config.getSchemaJson());
-        } catch (Exception e) {
-            log.error("Invalid JSON Schema for job: {}", e.getMessage());
-            throw new IllegalArgumentException(
-                    "JSON Schema is not valid: " + e.getMessage()
-            );
-        }
-
+        JsonSchemaValidator.validateSchema(config.getSchemaJson());
         String id = UUID.randomUUID().toString();
         DataJob job = new DataJob(id, config);
         jobStore.put(id, job);
