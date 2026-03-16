@@ -6,6 +6,7 @@ import com.nhd.mongoseeder.dto.JobConfig;
 import com.nhd.mongoseeder.engine.FakeDataEngine;
 import com.nhd.mongoseeder.enums.JobStatus;
 import com.nhd.mongoseeder.model.DataJob;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -23,6 +24,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
+import org.graalvm.polyglot.Value;
 
 @Service
 @Slf4j
@@ -39,11 +41,8 @@ public class JobService {
     public DataJob createJob(JobConfig config) {
         log.info(
                 "Creating job with config: collection={}, totalRecords={}, batchSize={}, threads={}",
-                config.getCollectionName(),
-                config.getTotalRecords(), 
-                config.getBatchSize(),
-                config.getThreadCount()
-        );
+                config.getCollectionName(), config.getTotalRecords(), config.getBatchSize(),
+                config.getThreadCount());
         JsonSchemaValidator.validateSchema(config.getSchemaJson());
         String id = UUID.randomUUID().toString();
         DataJob job = new DataJob(id, config);
@@ -71,10 +70,7 @@ public class JobService {
         MDC.put("jobId", jobId);
         DataJob job = jobStore.get(jobId);
         if (job == null || job.getStatus() != JobStatus.PENDING) {
-            log.warn(
-                    "Cannot start job [{}]: not found or not in PENDING state.",
-                    jobId
-            );
+            log.warn("Cannot start job [{}]: not found or not in PENDING state.", jobId);
             return;
         }
 
@@ -82,9 +78,8 @@ public class JobService {
         job.setStatus(JobStatus.RUNNING);
         job.getMetrics().setStartTime(System.currentTimeMillis());
 
-        ExecutorService jobExecutor = Executors.newFixedThreadPool(
-                job.getConfig().getThreadCount()
-        );
+        ExecutorService jobExecutor =
+                Executors.newFixedThreadPool(job.getConfig().getThreadCount());
         boolean failed = false;
 
         try {
@@ -96,45 +91,30 @@ public class JobService {
 
             for (int i = 0; i < totalBatches; i++) {
                 if (job.isStopRequested()) {
-                    log.warn(
-                            "Job [{}] stop requested before batch {}",
-                            jobId,
-                            i
-                    );
-                    while (latch.getCount() > 0) latch.countDown();
+                    log.warn("Job [{}] stop requested before batch {}", jobId, i);
+                    while (latch.getCount() > 0)
+                        latch.countDown();
                     break;
                 }
 
                 final int batchIndex = i;
-                final int currentBatchSize = (i == totalBatches - 1)
-                        ? total - (i * batchSize)
-                        : batchSize;
+                final int currentBatchSize =
+                        (i == totalBatches - 1) ? total - (i * batchSize) : batchSize;
 
                 jobExecutor.submit(() -> {
                     try {
-                        if (job.isStopRequested()) return;
+                        if (job.isStopRequested())
+                            return;
 
                         processSingleBatch(job, currentBatchSize);
-                        log.debug(
-                                "Job [{}]: completed batch {}",
-                                jobId,
-                                batchIndex
-                        );
+                        log.debug("Job [{}]: completed batch {}", jobId, batchIndex);
                     } catch (Exception e) {
                         job.addError(e.getMessage());
-                        log.error(
-                                "Job [{}]: error in batch {}: {}",
-                                jobId,
-                                batchIndex,
-                                e.getMessage(),
-                                e
-                        );
+                        log.error("Job [{}]: error in batch {}: {}", jobId, batchIndex,
+                                e.getMessage(), e);
 
                         if (isMongoConnectionError(e)) {
-                            log.error(
-                                    "Job [{}]: MongoDB connection lost, marking FAILED",
-                                    jobId
-                            );
+                            log.error("Job [{}]: MongoDB connection lost, marking FAILED", jobId);
                             job.requestStop();
                             synchronized (job) {
                                 job.setStatus(JobStatus.FAILED);
@@ -156,54 +136,44 @@ public class JobService {
         } finally {
             jobExecutor.shutdown();
             job.getMetrics().setEndTime(System.currentTimeMillis());
-            long duration =
-                    job.getMetrics().getEndTime() - job.getMetrics().getStartTime();
+            long duration = job.getMetrics().getEndTime() - job.getMetrics().getStartTime();
 
             if (job.getStatus() == JobStatus.FAILED || failed) {
-                log.error(
-                        "Job [{}] FAILED after {} ms ({} records inserted)",
-                        jobId,
-                        duration,
-                        job.getMetrics().getInsertedRecords().get()
-                );
+                log.error("Job [{}] FAILED after {} ms ({} records inserted)", jobId, duration,
+                        job.getMetrics().getInsertedRecords().get());
             } else if (job.isStopRequested()) {
                 job.setStatus(JobStatus.STOPPED);
-                log.warn(
-                        "Job [{}] STOPPED by user after {} ms",
-                        jobId,
-                        duration
-                );
+                log.warn("Job [{}] STOPPED by user after {} ms", jobId, duration);
             } else {
                 job.setStatus(JobStatus.COMPLETED);
-                log.info(
-                        "Job [{}] COMPLETED successfully after {} ms ({} records inserted)",
-                        jobId,
-                        duration,
-                        job.getMetrics().getInsertedRecords().get()
-                );
+                log.info("Job [{}] COMPLETED successfully after {} ms ({} records inserted)", jobId,
+                        duration, job.getMetrics().getInsertedRecords().get());
             }
 
             MDC.remove("jobId");
         }
     }
 
-    private void processSingleBatch(DataJob job, int batchSize)
-            throws Exception {
+    private void processSingleBatch(DataJob job, int batchSize) throws Exception {
+
         FakeDataEngine engine = engineThreadLocal.get();
 
-        String jsonArray = engine.generateBatchJson(
-                job.getConfig().getSchemaJson(),
-                batchSize
-        );
+        Value jsArray = engine.generateBatch(job.getConfig().getSchemaJson(), batchSize);
 
-        List<Map<String, Object>> list = objectMapper.readValue(
-                jsonArray,
-                new TypeReference<>() {}
-        );
+        List<Document> docs = new ArrayList<>(batchSize);
 
-        List<Document> docs = list.stream()
-                .map(Document::new)
-                .toList();
+        for (int i = 0; i < jsArray.getArraySize(); i++) {
+
+            Value obj = jsArray.getArrayElement(i);
+
+            Document doc = new Document();
+
+            for (String key : obj.getMemberKeys()) {
+                doc.put(key, obj.getMember(key).as(Object.class));
+            }
+
+            docs.add(doc);
+        }
 
         MongoTemplate mongoTemplate = templateFactory.create(job.getConfig().getDatabaseName());
 
@@ -215,15 +185,9 @@ public class JobService {
     private boolean isMongoConnectionError(Exception e) {
         Throwable cause = e;
         while (cause != null) {
-            String msg =
-                    cause.getMessage() != null
-                            ? cause.getMessage().toLowerCase()
-                            : "";
-            if (
-                    cause instanceof com.mongodb.MongoException ||
-                            msg.contains("connection") ||
-                            msg.contains("timeout")
-            ) {
+            String msg = cause.getMessage() != null ? cause.getMessage().toLowerCase() : "";
+            if (cause instanceof com.mongodb.MongoException || msg.contains("connection")
+                    || msg.contains("timeout")) {
                 return true;
             }
             cause = cause.getCause();
@@ -232,19 +196,13 @@ public class JobService {
     }
 
     public void markAllJobsFailed(String reason) {
-        jobStore
-                .values()
-                .forEach(job -> {
-                    if (job.getStatus() == JobStatus.RUNNING) {
-                        job.requestStop();
-                        job.setStatus(JobStatus.FAILED);
-                        job.addError(reason);
-                        log.error(
-                                "Job [{}] marked FAILED due to: {}",
-                                job.getId(),
-                                reason
-                        );
-                    }
-                });
+        jobStore.values().forEach(job -> {
+            if (job.getStatus() == JobStatus.RUNNING) {
+                job.requestStop();
+                job.setStatus(JobStatus.FAILED);
+                job.addError(reason);
+                log.error("Job [{}] marked FAILED due to: {}", job.getId(), reason);
+            }
+        });
     }
 }
