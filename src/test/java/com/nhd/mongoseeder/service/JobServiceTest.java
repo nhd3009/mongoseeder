@@ -6,27 +6,30 @@ import com.nhd.mongoseeder.dto.JobConfig;
 import com.nhd.mongoseeder.enums.JobStatus;
 import com.nhd.mongoseeder.model.DataJob;
 import com.mongodb.MongoException;
+import com.mongodb.client.MongoCollection;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import tools.jackson.databind.ObjectMapper;
-
-import java.util.Collection;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+
+import java.util.concurrent.TimeUnit;
+
+import org.bson.Document;
 
 @ExtendWith(MockitoExtension.class)
 class JobServiceTest {
 
     private JobService jobService;
-    private ObjectMapper objectMapper;
 
     @Mock
     private MongoTemplateFactory templateFactory;
@@ -34,10 +37,12 @@ class JobServiceTest {
     @Mock
     private MongoTemplate mongoTemplate;
 
+    @Mock
+    MongoCollection<Document> collection;
+
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
-        jobService = new JobService(objectMapper, templateFactory);
+        jobService = new JobService(templateFactory);
     }
 
     private JobConfig createValidConfig() {
@@ -66,10 +71,12 @@ class JobServiceTest {
 
     @Test
     void testInsertBatchSuccessAndMetricsUpdate() {
+
         JobConfig config = createValidConfig();
         DataJob job = jobService.createJob(config);
 
         when(templateFactory.create("testDb")).thenReturn(mongoTemplate);
+        when(mongoTemplate.getCollection("testColl")).thenReturn(collection);
 
         jobService.startJobExecution(job.getId());
 
@@ -78,24 +85,27 @@ class JobServiceTest {
         assertTrue(job.getMetrics().getStartTime() > 0);
         assertTrue(job.getMetrics().getEndTime() >= job.getMetrics().getStartTime());
 
-        verify(mongoTemplate, times(1)).insert(anyCollection(), eq("testColl"));
+        verify(collection, times(1)).insertMany(anyList());
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
     void testMongoErrorMarksJobFailed() {
         JobConfig config = createValidConfig();
         DataJob job = jobService.createJob(config);
 
         when(templateFactory.create("testDb")).thenReturn(mongoTemplate);
+        when(mongoTemplate.getCollection("testColl")).thenReturn(collection);
 
         doThrow(new MongoException("Connection lost"))
-            .when(mongoTemplate)
-            .insert(anyCollection(), eq("testColl"));
+                .when(collection)
+                .insertMany(anyList());
 
         jobService.startJobExecution(job.getId());
 
         assertEquals(JobStatus.FAILED, job.getStatus());
         assertFalse(job.getLastErrors().isEmpty());
+        System.out.println("Error message: " + job.getLastErrors().get(0));
         assertTrue(job.getLastErrors().get(0).contains("Connection lost"));
     }
 

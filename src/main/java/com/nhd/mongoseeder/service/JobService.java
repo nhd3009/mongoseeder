@@ -1,5 +1,6 @@
 package com.nhd.mongoseeder.service;
 
+import com.mongodb.client.MongoCollection;
 import com.nhd.mongoseeder.config.JsonSchemaValidator;
 import com.nhd.mongoseeder.config.MongoTemplateFactory;
 import com.nhd.mongoseeder.dto.JobConfig;
@@ -11,19 +12,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
-import org.slf4j.MDC;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
 import org.graalvm.polyglot.Value;
 
 @Service
@@ -32,7 +31,6 @@ import org.graalvm.polyglot.Value;
 public class JobService {
 
     private final Map<String, DataJob> jobStore = new ConcurrentHashMap<>();
-    private final ObjectMapper objectMapper;
     private final MongoTemplateFactory templateFactory;
 
     private final ThreadLocal<FakeDataEngine> engineThreadLocal =
@@ -67,12 +65,15 @@ public class JobService {
 
     @Async
     public void startJobExecution(String jobId) {
-        MDC.put("jobId", jobId);
         DataJob job = jobStore.get(jobId);
+        
         if (job == null || job.getStatus() != JobStatus.PENDING) {
             log.warn("Cannot start job [{}]: not found or not in PENDING state.", jobId);
             return;
         }
+
+        MongoTemplate mongoTemplate = templateFactory.create(job.getConfig().getDatabaseName());
+        MongoCollection<Document> collection = mongoTemplate.getCollection(job.getConfig().getCollectionName());
 
         log.info("Starting job [{}]...", jobId);
         job.setStatus(JobStatus.RUNNING);
@@ -87,46 +88,50 @@ public class JobService {
             int batchSize = job.getConfig().getBatchSize();
             int totalBatches = (int) Math.ceil((double) total / batchSize);
 
-            CountDownLatch latch = new CountDownLatch(totalBatches);
+            AtomicInteger batchCounter = new AtomicInteger(0);
 
-            for (int i = 0; i < totalBatches; i++) {
-                if (job.isStopRequested()) {
-                    log.warn("Job [{}] stop requested before batch {}", jobId, i);
-                    while (latch.getCount() > 0)
-                        latch.countDown();
-                    break;
-                }
-
-                final int batchIndex = i;
-                final int currentBatchSize =
-                        (i == totalBatches - 1) ? total - (i * batchSize) : batchSize;
+            for (int t = 0; t < job.getConfig().getThreadCount(); t++) {
 
                 jobExecutor.submit(() -> {
-                    try {
+
+                    while (true) {
                         if (job.isStopRequested())
-                            return;
+                            break;
+                        int batchIndex = batchCounter.getAndIncrement();
 
-                        processSingleBatch(job, currentBatchSize);
-                        log.debug("Job [{}]: completed batch {}", jobId, batchIndex);
-                    } catch (Exception e) {
-                        job.addError(e.getMessage());
-                        log.error("Job [{}]: error in batch {}: {}", jobId, batchIndex,
-                                e.getMessage(), e);
+                        if (batchIndex >= totalBatches || job.isStopRequested())
+                            break;
 
-                        if (isMongoConnectionError(e)) {
-                            log.error("Job [{}]: MongoDB connection lost, marking FAILED", jobId);
-                            job.requestStop();
-                            synchronized (job) {
-                                job.setStatus(JobStatus.FAILED);
+                        int currentBatchSize = (batchIndex == totalBatches - 1)
+                                        ? total - (batchIndex * batchSize)
+                                        : batchSize;
+
+                        try {
+                            if (job.isStopRequested())
+                                break;
+                            processSingleBatch(job, currentBatchSize, collection);
+                            log.debug("Job [{}]: completed batch {}", jobId, batchIndex);
+
+                        } catch (Exception e) {
+
+                            job.addError(e.getMessage());
+                            log.error("Job [{}]: error in batch {}: {}", jobId, batchIndex,
+                                    e.getMessage(), e);
+                            if (isMongoConnectionError(e)) {
+                                log.error("Job [{}]: MongoDB connection lost, marking FAILED", jobId);
+                                job.requestStop();
+                                synchronized (job) {
+                                    job.setStatus(JobStatus.FAILED);
+                                }
+                                jobExecutor.shutdownNow();
+                                break;
                             }
                         }
-                    } finally {
-                        latch.countDown();
                     }
                 });
             }
-
-            latch.await();
+            jobExecutor.shutdown();
+            jobExecutor.awaitTermination(1, TimeUnit.MINUTES);   
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             job.addError("Job interrupted: " + e.getMessage());
@@ -150,15 +155,17 @@ public class JobService {
                         duration, job.getMetrics().getInsertedRecords().get());
             }
 
-            MDC.remove("jobId");
         }
     }
 
-    private void processSingleBatch(DataJob job, int batchSize) throws Exception {
+    private void processSingleBatch(DataJob job,
+                                int batchSize,
+                                MongoCollection<Document> collection) throws Exception {
 
         FakeDataEngine engine = engineThreadLocal.get();
 
-        Value jsArray = engine.generateBatch(job.getConfig().getSchemaJson(), batchSize);
+        Value jsArray =
+                engine.generateBatch(job.getConfig().getSchemaJson(), batchSize);
 
         List<Document> docs = new ArrayList<>(batchSize);
 
@@ -175,9 +182,7 @@ public class JobService {
             docs.add(doc);
         }
 
-        MongoTemplate mongoTemplate = templateFactory.create(job.getConfig().getDatabaseName());
-
-        mongoTemplate.insert(docs, job.getConfig().getCollectionName());
+        collection.insertMany(docs);
 
         job.getMetrics().getInsertedRecords().addAndGet(batchSize);
     }

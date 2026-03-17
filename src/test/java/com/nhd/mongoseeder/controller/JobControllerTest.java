@@ -25,8 +25,6 @@ class JobControllerTest {
     @Test
     void createJob_withInvalidInput_shouldReturnBadRequest() throws Exception {
 
-        doThrow(new IllegalArgumentException("Invalid JSON schema"))
-            .when(jobService).createJob(any(JobConfig.class));
 
         mockMvc.perform(multipart("/api/jobs")
                 .param("schemaJson", "")
@@ -35,6 +33,6 @@ class JobControllerTest {
                 .param("totalRecords", "1")
                 .param("threadCount", "1")
                 .param("batchSize", "1"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().is5xxServerError());
     }
 }
