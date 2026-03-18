@@ -131,7 +131,7 @@ public class JobService {
                 });
             }
             jobExecutor.shutdown();
-            jobExecutor.awaitTermination(1, TimeUnit.MINUTES);   
+            jobExecutor.awaitTermination(1, TimeUnit.HOURS);   
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             job.addError("Job interrupted: " + e.getMessage());

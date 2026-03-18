@@ -24,7 +24,7 @@ public class JobController {
         this.jobService = jobService;
     }
 
-    @PostMapping(consumes = { MediaType.MULTIPART_FORM_DATA_VALUE })
+    @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
     public ResponseEntity<DataJob> createJob(@Valid @ModelAttribute JobConfig config) {
         return ResponseEntity.ok(jobService.createJob(config));
     }
@@ -59,16 +59,16 @@ public class JobController {
         return emitter;
     }
 
-    @Scheduled(fixedRate = 1000)
+    @Scheduled(fixedRate = 500)
     public void pushMetrics() {
         emitters.forEach((jobId, emitter) -> {
             DataJob job = jobService.getJob(jobId);
             if (job != null) {
                 try {
                     emitter.send(job);
-                    if (job.getStatus() == JobStatus.COMPLETED ||
-                            job.getStatus() == JobStatus.STOPPED ||
-                            job.getStatus() == JobStatus.FAILED) {
+                    if (job.getStatus() == JobStatus.COMPLETED
+                            || job.getStatus() == JobStatus.STOPPED
+                            || job.getStatus() == JobStatus.FAILED) {
                         emitter.complete();
                     }
                 } catch (Exception e) {
