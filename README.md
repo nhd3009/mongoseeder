@@ -128,6 +128,7 @@ docker ps
    ```
    POST /api/jobs
    Content-Type: multipart/form-data
+   "databaseName": "exampleDb"
    "collectionName": "users"
    "totalRecords": 100000
    "threadCount": 8,
