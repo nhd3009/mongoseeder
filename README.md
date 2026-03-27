@@ -71,6 +71,11 @@ spring:
     mongodb:
       uri: ${MONGODB_URL}/${DATABASE_NAME}
 ```
+Example
+```
+MONGODB_URL=mongodb://localhost:27017
+DATABASE_NAME=seeddb
+```
 
 ## Requirements
 - Graalvm for JS Execution
